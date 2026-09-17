@@ -38,7 +38,7 @@ Print (opcional):
 ## 2. `terraform apply` concluído
 
 Print ou trecho final do `terraform apply` mostrando **"Apply complete!"** e os
-outputs (`bucket_nome`, `emr_app_id`, `emr_app_arn`). **NÃO** mostre credenciais.
+outputs (`bucket_nome`, `glue_job_nome`, `labrole_arn`). **NÃO** mostre credenciais.
 
 **Onde:** `cd aws-lab/infra && terraform apply`
 
@@ -54,11 +54,11 @@ Print:
 
 ---
 
-## 3. Job com estado SUCCESS
+## 3. Job com estado SUCCEEDED (Glue)
 
-Print/saída final do `./run_job.sh` mostrando `estado: SUCCESS` e o `jobRunId`.
-(Alternativa: print do console EMR Serverless → **Job runs** com status
-**Success**.)
+Print/saída final do `./run_job.sh` mostrando `estado: SUCCEEDED` e o `RUN_ID`.
+(Alternativa: print do console **AWS Glue → Jobs → seu job → aba Runs** com status
+**Succeeded**.)
 
 **Onde:** `cd aws-lab/scripts && ./run_job.sh`
 
@@ -112,10 +112,11 @@ Interpretação:
 
 ## 6. Logs do driver (opcional / bônus)
 
-Print dos logs do **driver** no console EMR Serverless (ou do `s3://SEU_BUCKET/logs/`)
+Print dos logs do **driver** no **CloudWatch** (grupo `/aws-glue/jobs/output`)
 mostrando o `print(...)` do `rdd_job.py`.
 
-**Onde:** EMR Serverless → sua aplicação → **Job runs** → run → **Driver log**.
+**Onde:** AWS Glue → Jobs → seu job → aba **Runs** → selecione o run → **Output logs**
+(abre o CloudWatch no grupo `/aws-glue/jobs/output`).
 
 Print:
 ```
@@ -147,7 +148,7 @@ Print:
 
 - [ ] 1. Identidade AWS ativa (`aws sts get-caller-identity`)
 - [ ] 2. `terraform apply` concluído ("Apply complete!" + outputs)
-- [ ] 3. Job com estado `SUCCESS` (+ `jobRunId`)
+- [ ] 3. Job com estado `SUCCEEDED` (Glue) (+ `RUN_ID`)
 - [ ] 4. Resultado do word count (`./ver_resultado.sh`)
 - [ ] 5. Top palavras + interpretação (2–3 frases)
 - [ ] 6. Logs do driver (opcional / bônus)

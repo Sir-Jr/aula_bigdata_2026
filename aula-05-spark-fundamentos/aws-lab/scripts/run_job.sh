@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_job.sh — Submete o job de RDDs (word count) no EMR Serverless.
+# run_job.sh — Dispara o Glue Job de RDDs (word count) e acompanha o resultado.
 #
 # O que este script faz:
-#   1. Descobre BUCKET, APP_ID e ROLE_ARN a partir dos outputs do Terraform
-#      (../infra) OU das variaveis de ambiente BUCKET/APP_ID/ROLE_ARN.
-#   2. Envia o script PySpark e o dado de exemplo para o S3.
-#   3. Dispara o job (start-job-run) e captura o jobRunId.
-#   4. Faz polling do estado ate SUCCESS ou FAILED.
+#   1. Descobre BUCKET, GLUE_JOB e ROLE_ARN a partir dos outputs do Terraform
+#      (../infra) OU das variaveis de ambiente BUCKET/GLUE_JOB/ROLE_ARN.
+#   2. RE-ENVIA o script PySpark e o dado de exemplo para o S3 (para refletir
+#      as edicoes do aluno feitas DEPOIS do terraform apply).
+#   3. LIMPA a saida anterior (o saveAsTextFile falha se o prefixo ja existir).
+#   4. Dispara o job (aws glue start-job-run) e captura o JobRunId.
+#   5. Faz polling do estado ate SUCCEEDED ou FAILED.
 #
 # Uso (dentro de aws-lab/scripts):
 #   ./run_job.sh
 # Ou informando manualmente:
-#   BUCKET=meu-bucket APP_ID=xxxx ROLE_ARN=arn:aws:iam::...:role/LabRole ./run_job.sh
+#   BUCKET=meu-bucket GLUE_JOB=job-aula05-wordcount ./run_job.sh
 #
 # Requer: AWS CLI v2 configurado com as credenciais do Learner Lab (us-east-1).
 # =============================================================================
@@ -34,66 +36,90 @@ run() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. Descobrir BUCKET, APP_ID e ROLE_ARN.
+# 1. Descobrir BUCKET, GLUE_JOB e ROLE_ARN.
 #    Preferimos os outputs do Terraform; se falharem, usamos as env vars.
+#    (ROLE_ARN NAO e usado no start-job-run do Glue — a role ja esta no Job —
+#     mas mostramos no log para conferencia.)
 # ---------------------------------------------------------------------------
 BUCKET="${BUCKET:-$(terraform -chdir="$INFRA_DIR" output -raw bucket_nome 2>/dev/null || true)}"
-APP_ID="${APP_ID:-$(terraform -chdir="$INFRA_DIR" output -raw emr_app_id 2>/dev/null || true)}"
+GLUE_JOB="${GLUE_JOB:-$(terraform -chdir="$INFRA_DIR" output -raw glue_job_nome 2>/dev/null || true)}"
 ROLE_ARN="${ROLE_ARN:-$(terraform -chdir="$INFRA_DIR" output -raw labrole_arn 2>/dev/null || true)}"
 
-if [[ -z "$BUCKET" || -z "$APP_ID" || -z "$ROLE_ARN" ]]; then
-  echo "ERRO: nao consegui obter BUCKET/APP_ID/ROLE_ARN." >&2
+if [[ -z "$BUCKET" || -z "$GLUE_JOB" ]]; then
+  echo "ERRO: nao consegui obter BUCKET/GLUE_JOB." >&2
   echo "      Rode 'terraform apply' em ../infra ou defina as variaveis de ambiente" >&2
-  echo "      BUCKET, APP_ID e ROLE_ARN antes de executar este script." >&2
+  echo "      BUCKET e GLUE_JOB antes de executar este script." >&2
   exit 1
 fi
 
 echo "BUCKET   = $BUCKET"
-echo "APP_ID   = $APP_ID"
-echo "ROLE_ARN = $ROLE_ARN"
+echo "GLUE_JOB = $GLUE_JOB"
+echo "ROLE_ARN = ${ROLE_ARN:-(nao informado — ok, a role ja esta no Job)}"
 
 # ---------------------------------------------------------------------------
-# 2. Enviar o script PySpark e o dado de exemplo para o S3.
+# 2. RE-ENVIAR o script PySpark e o dado de exemplo para o S3.
+#    Isso garante que o job rode a versao ATUAL do rdd_job.py (com os TODOs
+#    ja resolvidos pelo aluno), mesmo sem um novo terraform apply.
 # ---------------------------------------------------------------------------
 run aws s3 cp "$JOB_FILE" "s3://$BUCKET/scripts/rdd_job.py"
 run aws s3 cp "$DATA_FILE" "s3://$BUCKET/input/sample_lines.txt"
 
 # ---------------------------------------------------------------------------
-# 3. Disparar o job (start-job-run) e capturar o jobRunId.
+# 3. LIMPAR a saida anterior.
+#    O RDD.saveAsTextFile FALHA se o prefixo de saida ja existir. Removemos a
+#    pasta output/wordcount antes de rodar de novo (|| true: ok se nao existir).
 # ---------------------------------------------------------------------------
-echo "\$ aws emr-serverless start-job-run ..."
-JOB_RUN_ID="$(aws emr-serverless start-job-run \
-  --application-id "$APP_ID" \
-  --execution-role-arn "$ROLE_ARN" \
-  --name "aula05-rdd" \
-  --job-driver '{"sparkSubmit":{"entryPoint":"s3://'"$BUCKET"'/scripts/rdd_job.py","entryPointArguments":["--input","s3://'"$BUCKET"'/input/sample_lines.txt","--output","s3://'"$BUCKET"'/output/wordcount"]}}' \
-  --configuration-overrides '{"monitoringConfiguration":{"s3MonitoringConfiguration":{"logUri":"s3://'"$BUCKET"'/logs/"}}}' \
-  --query 'jobRunId' --output text)"
-
-echo "jobRunId = $JOB_RUN_ID"
+run aws s3 rm "s3://$BUCKET/output/wordcount" --recursive || true
 
 # ---------------------------------------------------------------------------
-# 4. Polling do estado ate SUCCESS ou FAILED.
+# 4. Disparar o Glue Job e capturar o JobRunId.
 # ---------------------------------------------------------------------------
-echo "Aguardando o job terminar (estados: SUBMITTED -> PENDING -> SCHEDULED -> RUNNING -> SUCCESS/FAILED)..."
+echo "\$ aws glue start-job-run --job-name $GLUE_JOB ..."
+RUN_ID="$(aws glue start-job-run \
+  --job-name "$GLUE_JOB" \
+  --region us-east-1 \
+  --query 'JobRunId' --output text)"
+
+echo "RUN_ID = $RUN_ID"
+
+# ---------------------------------------------------------------------------
+# 5. Polling do estado ate terminar.
+#    Estados do Glue: STARTING -> RUNNING -> SUCCEEDED / FAILED / TIMEOUT / STOPPED.
+# ---------------------------------------------------------------------------
+echo "Aguardando o job terminar (estados: STARTING -> RUNNING -> SUCCEEDED/FAILED)..."
 while true; do
-  ESTADO="$(aws emr-serverless get-job-run \
-    --application-id "$APP_ID" \
-    --job-run-id "$JOB_RUN_ID" \
-    --query 'jobRun.state' --output text)"
+  ESTADO="$(aws glue get-job-run \
+    --job-name "$GLUE_JOB" \
+    --run-id "$RUN_ID" \
+    --region us-east-1 \
+    --query 'JobRun.JobRunState' --output text)"
   echo "estado: $ESTADO"
   case "$ESTADO" in
-    SUCCESS)
+    SUCCEEDED)
       echo "Job concluido com SUCESSO."
       echo "Veja o resultado com: ./ver_resultado.sh"
       exit 0
       ;;
-    FAILED|CANCELLED)
+    FAILED | TIMEOUT | STOPPED)
       echo "Job terminou com estado: $ESTADO." >&2
-      echo "Veja os logs em: s3://$BUCKET/logs/ (ou no console EMR Serverless)." >&2
+      # Mostra a mensagem de erro que o Glue registrou para este run (se houver).
+      ERRO_MSG="$(aws glue get-job-run \
+        --job-name "$GLUE_JOB" \
+        --run-id "$RUN_ID" \
+        --region us-east-1 \
+        --query 'JobRun.ErrorMessage' --output text 2>/dev/null || true)"
+      if [[ -n "$ERRO_MSG" && "$ERRO_MSG" != "None" ]]; then
+        echo "ErrorMessage: $ERRO_MSG" >&2
+      fi
+      echo "Veja os logs do driver no CloudWatch (grupos /aws-glue/jobs/output e" >&2
+      echo "/aws-glue/jobs/error) ou os artefatos em: s3://$BUCKET/logs/." >&2
       exit 1
       ;;
+    STARTING | RUNNING | WAITING)
+      sleep 15
+      ;;
     *)
+      # Estado inesperado: aguarda mais um pouco antes de reconsultar.
       sleep 15
       ;;
   esac

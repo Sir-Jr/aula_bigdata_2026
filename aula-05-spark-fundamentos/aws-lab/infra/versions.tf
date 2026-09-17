@@ -1,4 +1,4 @@
-# versions.tf — aws-lab (aula-05: Spark/RDDs no EMR Serverless)
+# versions.tf — aws-lab (aula-05: Spark/RDDs no AWS Glue)
 # PRONTO — não precisa alterar.
 #
 # Fixa a versão mínima do Terraform e do provider AWS usados no lab.

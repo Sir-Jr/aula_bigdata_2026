@@ -1,7 +1,7 @@
-# Aula 05 — Rodando os RDDs do Spark na AWS (EMR Serverless)
+# Aula 05 — Rodando os RDDs do Spark na AWS (AWS Glue)
 
 Lab **passo a passo** para você executar a lógica de RDDs da aula-05 em um Spark
-**gerenciado** na AWS (EMR Serverless), provisionado com **Terraform**, dentro do
+**gerenciado** na AWS (**AWS Glue**), provisionado com **Terraform**, dentro do
 **AWS Academy Learner Lab**.
 
 ---
@@ -9,33 +9,49 @@ Lab **passo a passo** para você executar a lógica de RDDs da aula-05 em um Spa
 ## Objetivo
 
 Rodar as operações de **RDD** da aula-05 (`word_count_rdd`) em um **Spark gerenciado
-na nuvem** — o **EMR Serverless** — sem precisar subir e manter um cluster ligado.
-Você vai enviar o script e os dados para o **S3**, submeter um **job** e ler o
+na nuvem** — o **AWS Glue** — sem precisar subir e manter um cluster ligado.
+Você vai enviar o script e os dados para o **S3**, disparar um **Glue Job** e ler o
 resultado de volta do S3. É a mesma API de RDDs da aula, mas processada por um
 driver e executors provisionados pela AWS sob demanda.
+
+### Por que AWS Glue (e não EMR Serverless)?
+
+Neste Learner Lab desta turma o **EMR Serverless está bloqueado** (a `LabRole` não
+confia em `emr-serverless.amazonaws.com`, então qualquer chamada dá `AccessDenied`).
+O **AWS Glue funciona** (a `LabRole` confia em `glue.amazonaws.com`) e é o mesmo
+Spark gerenciado usado com sucesso na prova deste repositório.
 
 ---
 
 ## Arquitetura
 
 ```
-   +------------------+        submete job         +---------------------------+
-   |      S3          |  ------------------------>  |     EMR Serverless        |
-   |  input/  (dados) |                             |     (Spark, tipo=spark)   |
+   +------------------+       start-job-run        +---------------------------+
+   |      S3          |  ------------------------>  |       AWS Glue Job        |
+   |  input/  (dados) |                             |    (Spark, glueetl)       |
    |  scripts/ (.py)  |                             |                           |
    |                  |   lê input + script         |   +-------------------+   |
    |                  | <-------------------------- |   |  DRIVER (SparkCtx) |   |
    |  output/ (result)|                             |   +-------------------+   |
-   |  logs/   (logs)  |   escreve output + logs     |   +---+  +---+  +---+     |
-   |                  | <-------------------------- |   |EX |  |EX |  |EX | ...  |
+   |  logs/   (logs)  |   escreve output            |   +---+  +---+  +---+     |
+   |  tmp/    (temp)  | <-------------------------- |   |EX |  |EX |  |EX | ...  |
    +------------------+                             |   +---+  +---+  +---+     |
+                                                    +-------------|-------------+
+                                                                  | logs do driver
+                                                                  v
+                                                    +---------------------------+
+                                                    |  CloudWatch Logs          |
+                                                    |  /aws-glue/jobs/output    |
                                                     +---------------------------+
 ```
 
 - **S3** = armazenamento distribuído/durável (guarda entrada, script, saída e logs).
-- **EMR Serverless** = o "cluster" gerenciado. Você não liga máquinas: ao submeter
+  O script fica em `scripts/rdd_job.py` e é **lido pelo Glue** a cada execução.
+- **AWS Glue Job** = o "cluster" gerenciado. Você não liga máquinas: ao disparar
   o job, a AWS provisiona o **driver** (onde roda o `SparkContext`) e os
   **executors** (que processam as partições dos RDDs) e os libera ao terminar.
+- **CloudWatch Logs** = onde ficam os logs do driver (grupo `/aws-glue/jobs/output`);
+  é ali que aparece o `print(...)` do `rdd_job.py`.
 - Relação com a aula-05: o `sc.parallelize(...)`, `flatMap`, `map` e `reduceByKey`
   continuam iguais. O **driver** coordena; os **executors** processam os dados
   particionados — só que agora na nuvem.
@@ -103,7 +119,7 @@ cp terraform.tfvars.example terraform.tfvars
 
 Edite `infra/terraform.tfvars`:
 - `labrole_arn` = ARN retornado acima.
-- `bucket_nome` = um nome **globalmente único** (ex.: `lab-aula05-spark-SEURA`).
+- `bucket_nome` = um nome **globalmente único** (ex.: `lab-aula05-glue-SEURA`).
 - `regiao` e `tags` já vêm prontos.
 
 > ⚠️ `terraform.tfvars` está no `.gitignore` — não o commite.
@@ -120,7 +136,7 @@ Abra `job/rdd_job.py` e implemente as duas funções marcadas como TODO:
   `word_count_rdd`).
 
 **Teste a lógica localmente ANTES de subir.** Você pode validar rapidamente suas
-funções de RDD numa máquina com Python 3.10+ e Java 17+ instalados:
+funções de RDD numa máquina com Python 3.10+ e Java 17+ instalados (sem Docker):
 
 ```bash
 pip install pyspark==3.5.1
@@ -137,7 +153,7 @@ PY
 
 > Dica: a API de RDDs (`sc.parallelize`, `flatMap`, `map`, `reduceByKey`) é a mesma
 > vista na aula-05. Quando o resultado local bater com o exemplo do docstring, suba
-> para o EMR Serverless.
+> para o AWS Glue.
 
 ---
 
@@ -151,11 +167,13 @@ terraform plan
 terraform apply     # confirme com 'yes'
 ```
 
+O `apply` já **sobe o script** (`job/rdd_job.py` → `s3://SEU_BUCKET/scripts/`) e o
+**dado de exemplo** (`data/sample_lines.txt` → `s3://SEU_BUCKET/input/`) para o S3.
+
 Ao final, o Terraform mostra os **outputs**:
 - `bucket_nome` — nome do bucket S3 do lab.
-- `emr_app_id` — ID da aplicação EMR Serverless.
-- `emr_app_arn` — ARN da aplicação.
-- `labrole_arn` — ARN da LabRole (usado como execution role do job).
+- `glue_job_nome` — nome do Glue Job (usado no `aws glue start-job-run`).
+- `labrole_arn` — ARN da LabRole (IAM role do Glue Job).
 
 Os scripts do Passo 5 leem esses outputs automaticamente.
 
@@ -169,14 +187,17 @@ cd ../scripts
 ```
 
 O `run_job.sh`:
-1. Lê `bucket_nome`, `emr_app_id` e `labrole_arn` dos outputs do Terraform.
-2. Envia `job/rdd_job.py` para `s3://SEU_BUCKET/scripts/` e o
-   `data/sample_lines.txt` para `s3://SEU_BUCKET/input/`.
-3. Submete o job (`start-job-run`) e captura o `jobRunId`.
-4. Faz **polling** do estado a cada 15s.
+1. Lê `bucket_nome`, `glue_job_nome` e `labrole_arn` dos outputs do Terraform.
+2. **Re-sobe** `job/rdd_job.py` para `s3://SEU_BUCKET/scripts/` e o
+   `data/sample_lines.txt` para `s3://SEU_BUCKET/input/` (reflete as edições feitas
+   depois do `apply`).
+3. **Limpa a saída anterior** (`s3://SEU_BUCKET/output/wordcount/`), pois o
+   `saveAsTextFile` falha se o prefixo já existir.
+4. Dispara o job (`aws glue start-job-run`) e captura o `JobRunId`.
+5. Faz **polling** do estado a cada 15s.
 
-Estados esperados: `SUBMITTED → PENDING → SCHEDULED → RUNNING → SUCCESS`
-(ou `FAILED`). O script termina com código 0 em `SUCCESS`.
+Estados do Glue: `STARTING → RUNNING → SUCCEEDED` (ou `FAILED`/`TIMEOUT`/`STOPPED`).
+O script termina com código 0 em `SUCCEEDED`.
 
 ---
 
@@ -189,12 +210,12 @@ Estados esperados: `SUBMITTED → PENDING → SCHEDULED → RUNNING → SUCCESS`
 Isso lista `s3://SEU_BUCKET/output/wordcount/` e imprime o conteúdo
 (`palavra,contagem`).
 
-**Logs do job** ficam em `s3://SEU_BUCKET/logs/`. Para ver os logs do **driver**
-pelo console: EMR Serverless → sua aplicação → **Job runs** → selecione o run →
-**Driver log** (stdout/stderr). O `print(...)` do `rdd_job.py` aparece ali.
+**Logs do driver** ficam no **CloudWatch** (grupo `/aws-glue/jobs/output`). Pelo
+console: **AWS Glue → Jobs → seu job → aba Runs → selecione o run → Output logs**.
+O `print(...)` do `rdd_job.py` aparece ali.
 
 > 📸 A partir daqui você já deve ir **capturando as evidências** conforme executa
-> cada passo (identidade AWS, `apply`, job `SUCCESS`, resultado, logs e `destroy`).
+> cada passo (identidade AWS, `apply`, job `SUCCEEDED`, resultado, logs e `destroy`).
 > Veja a seção **["Entrega de evidências"](#entrega-de-evidências)** e use o
 > template [`evidencias/TEMPLATE.md`](evidencias/TEMPLATE.md).
 
@@ -207,9 +228,9 @@ cd ../infra
 terraform destroy   # confirme com 'yes'
 ```
 
-> O EMR Serverless com **auto-stop** não gera custo enquanto está **parado**, mas
-> ainda assim **destrua tudo ao final**. O Learner Lab tem **orçamento e tempo de
-> sessão limitados** — não deixe recursos residuais (bucket, aplicação).
+> O **AWS Glue cobra por tempo de execução do job** (não fica "ligado" entre
+> execuções), mas ainda assim **destrua o bucket e o job ao final**. O Learner Lab
+> tem **orçamento e tempo de sessão limitados** — não deixe recursos residuais.
 
 ---
 
@@ -231,7 +252,7 @@ Checklist das evidências:
 
 - [ ] 1. Identidade AWS ativa (`aws sts get-caller-identity`)
 - [ ] 2. `terraform apply` concluído ("Apply complete!" + outputs)
-- [ ] 3. Job com estado `SUCCESS` (+ `jobRunId`)
+- [ ] 3. Job com estado `SUCCEEDED` (Glue) (+ `JobRunId`)
 - [ ] 4. Resultado do word count (`./ver_resultado.sh`)
 - [ ] 5. Top palavras + interpretação (2–3 frases)
 - [ ] 6. Logs do driver (**opcional / bônus**)
@@ -250,7 +271,7 @@ Checklist das evidências:
 - Inclua a pasta `evidencias/<RA>/` na PR (com `EVIDENCIAS.md` + prints), conforme
   a seção **["Entrega de evidências"](#entrega-de-evidências)**.
 - Abra um **Pull Request**.
-- Anexe evidências: **print do estado `SUCCESS`** do job e o **output** do word
+- Anexe evidências: **print do estado `SUCCEEDED`** do job e o **output** do word
   count (`./ver_resultado.sh`).
 
 ---
@@ -259,11 +280,11 @@ Checklist das evidências:
 
 | Conceito (aula-05)               | Serviço/Recurso na AWS                          |
 |----------------------------------|-------------------------------------------------|
-| RDD / transformações e ações     | EMR Serverless (Spark) executando o job         |
-| Driver (SparkContext)            | Driver gerenciado pelo EMR Serverless           |
-| Executors (processam partições)  | Executors gerenciados pelo EMR Serverless       |
+| RDD / transformações e ações     | AWS Glue (Spark) executando o job               |
+| Driver (SparkContext)            | Driver gerenciado pelo AWS Glue                 |
+| Executors (processam partições)  | Executors gerenciados pelo AWS Glue             |
 | Armazenamento distribuído (HDFS) | Amazon S3 (input, script, output, logs)         |
-| Cluster ligado/desligado         | EMR Serverless (sob demanda, com auto-stop)     |
+| Cluster ligado/desligado         | AWS Glue Job (sob demanda, cobra por execução)  |
 
 ---
 
@@ -273,9 +294,11 @@ Checklist das evidências:
   Learner Lab e **reexporte** `AWS_ACCESS_KEY_ID`/`SECRET`/`SESSION_TOKEN`.
 - **Bucket name já existe**: o nome do S3 é **global**. Escolha outro
   `bucket_nome` no `terraform.tfvars` e rode `terraform apply` de novo.
-- **Job `FAILED`**: veja os logs em `s3://SEU_BUCKET/logs/` (ou no console do EMR
-  Serverless, no Job run). Erros comuns: TODOs não implementados
-  (`NotImplementedError`), caminho `--input`/`--output` errado, ou output já
-  existente (apague `s3://SEU_BUCKET/output/wordcount/` antes de re-rodar).
+- **Job `FAILED`**: leia o `ErrorMessage` do run (o `run_job.sh` já o imprime) e os
+  **logs no CloudWatch** (grupos `/aws-glue/jobs/output` e `/aws-glue/jobs/error`),
+  ou os artefatos em `s3://SEU_BUCKET/logs/`. Pelo console: **AWS Glue → Jobs →
+  seu job → Runs**. Erros comuns: TODOs não implementados (`NotImplementedError`),
+  caminho `--INPUT`/`--OUTPUT` errado, ou output já existente (o `run_job.sh` já
+  apaga `s3://SEU_BUCKET/output/wordcount/` antes de re-rodar).
 - **`NotImplementedError`**: você esqueceu de completar os TODOs em
   `job/rdd_job.py` (Passo 3) antes de subir.

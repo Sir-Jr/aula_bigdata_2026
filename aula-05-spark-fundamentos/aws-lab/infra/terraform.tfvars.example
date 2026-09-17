@@ -23,7 +23,8 @@ regiao = "us-east-1"
 labrole_arn = "arn:aws:iam::000000000000:role/LabRole"
 
 # Nome GLOBALMENTE único do bucket (troque SEURA pelo seu RA/identificação).
-bucket_nome = "lab-aula05-spark-SEURA"
+# Guarda script, dados de entrada, saída e logs do Glue Job (um único bucket).
+bucket_nome = "lab-aula05-glue-SEURA"
 
 # Tags de custo padronizadas (aplicadas a todos os recursos).
 tags = {

@@ -43,6 +43,6 @@ aws s3 cp --recursive "s3://$BUCKET/output/wordcount/" "$TMP_DIR"
 
 # Concatena todos os arquivos de particao (part-*).
 cat "$TMP_DIR"/part-* 2>/dev/null || {
-  echo "(nenhum arquivo part-* encontrado — verifique se o job terminou com SUCCESS)" >&2
+  echo "(nenhum arquivo part-* encontrado — verifique se o job terminou com SUCCEEDED)" >&2
   exit 1
 }

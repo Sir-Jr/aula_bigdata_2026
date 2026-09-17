@@ -1,7 +1,7 @@
 # Evidências do lab (entrega por RA)
 
 Esta pasta guarda as **evidências** que comprovam que você executou o lab da
-aula-05 na AWS (EMR Serverless). As evidências fazem parte da entrega e vão
+aula-05 na AWS (AWS Glue). As evidências fazem parte da entrega e vão
 **versionadas na Pull Request**.
 
 ## Como entregar

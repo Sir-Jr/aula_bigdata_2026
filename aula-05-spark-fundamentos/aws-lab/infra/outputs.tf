@@ -1,4 +1,4 @@
-# outputs.tf — aws-lab (aula-05: Spark/RDDs no EMR Serverless)
+# outputs.tf — aws-lab (aula-05: Spark/RDDs no AWS Glue)
 # Expõe os valores que os scripts em ../scripts consomem via `terraform output`.
 
 output "bucket_nome" {
@@ -6,17 +6,12 @@ output "bucket_nome" {
   value       = aws_s3_bucket.lab.bucket
 }
 
-output "emr_app_id" {
-  description = "ID da aplicação EMR Serverless (Spark). Usado no --application-id do start-job-run."
-  value       = aws_emrserverless_application.spark.id
-}
-
-output "emr_app_arn" {
-  description = "ARN da aplicação EMR Serverless (Spark)."
-  value       = aws_emrserverless_application.spark.arn
+output "glue_job_nome" {
+  description = "Nome do Glue Job. Usado no --job-name do 'aws glue start-job-run'."
+  value       = aws_glue_job.wordcount.name
 }
 
 output "labrole_arn" {
-  description = "ARN da LabRole usada como --execution-role-arn ao submeter o job no EMR Serverless."
+  description = "ARN da LabRole usada como IAM role do Glue Job (informativo; a role já está no Job)."
   value       = var.labrole_arn
 }

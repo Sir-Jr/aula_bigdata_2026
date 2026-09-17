@@ -1,4 +1,4 @@
-name: "Validacao - Aula 05 (Lab AWS EMR Serverless)"
+name: "Validacao - Aula 05 (Lab AWS Glue)"
 
 on:
   pull_request:
@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Validacao - Aula 05 (Lab AWS EMR Serverless)"
+            echo "## Validacao - Aula 05 (Lab AWS Glue)"
             echo ""
             echo "A estrutura do lab AWS foi validada:"
             echo "- Terraform (infra/): formatacao e configuracao verificadas."
