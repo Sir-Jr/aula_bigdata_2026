@@ -1,7 +1,7 @@
 # Lab - Aula 05: Fundamentos do Spark (RDDs) na AWS
 
 Este lab executa as operações com **RDDs (Resilient Distributed Datasets)** do
-Spark em um **Spark gerenciado na nuvem** — o **AWS EMR Serverless** —
+Spark em um **Spark gerenciado na nuvem** — o **AWS Glue** —
 provisionado com **Terraform** e rodando dentro do **AWS Academy Learner Lab**.
 Você envia o script e os dados para o S3, submete um job e lê o resultado de
 volta, sem precisar manter um cluster ligado.
@@ -17,7 +17,7 @@ completo (credenciais, Terraform, submissão do job e limpeza) está em
 ```
 aws-lab/
 ├── README.md            # passo a passo completo
-├── infra/               # Terraform (S3 + EMR Serverless)
+├── infra/               # Terraform (AWS Glue Job; bucket S3 criado por CLI)
 ├── job/rdd_job.py       # script PySpark de RDDs (TODOs do aluno)
 ├── scripts/             # run_job.sh, ver_resultado.sh
 ├── evidencias/          # entrega das evidências por RA (TEMPLATE.md)

@@ -3,9 +3,6 @@
 # INFRA PRONTA DO LAB — você NÃO precisa alterar este arquivo.
 #
 # O que este arquivo provisiona:
-#   - Um bucket S3 PRIVADO (guarda o script PySpark, os dados de entrada, a
-#     saída do job e os logs). Um ÚNICO bucket com prefixos: scripts/, input/,
-#     output/ e logs/.
 #   - Um AWS Glue Job (PySpark / glueetl) que roda o word count com RDDs. O
 #     Glue é o "Spark gerenciado": a AWS provisiona driver e executors sob
 #     demanda quando o job é disparado, sem você ligar/desligar máquinas.
@@ -15,12 +12,23 @@
 #   emr-serverless.amazonaws.com), mas o Glue FUNCIONA (a LabRole confia em
 #   glue.amazonaws.com). É o mesmo serviço usado na prova deste repositório.
 #
+# ⚠️ O bucket S3 do lab NÃO é gerenciado por este Terraform (veja o Passo 2.5
+#    do README): o AWS Academy Learner Lab bloqueia por Service Control Policy
+#    a chamada s3:GetBucketObjectLockConfiguration, que o provider AWS faz
+#    incondicionalmente ao ler QUALQUER `aws_s3_bucket` — isso quebra
+#    plan/apply/destroy mesmo para um bucket recém-criado, mesmo com
+#    object_lock_enabled = false. O bucket é criado uma única vez via AWS CLI
+#    (aws s3api create-bucket) e referenciado aqui só pelo nome
+#    (var.bucket_nome), sem o Terraform tentar gerenciá-lo. O upload do script
+#    e do dado de entrada também é feito por CLI, no scripts/run_job.sh (Passo
+#    5), não por este Terraform.
+#
 # Regras do Learner Lab (leia antes de aplicar):
 #   - Região fixa us-east-1 (via var.regiao).
 #   - NÃO criamos roles/policies IAM próprias: o Glue Job usa a LabRole por ARN
 #     (var.labrole_arn) como IAM role de execução.
-#   - Bucket S3 PRIVADO (public access block com os 4 bloqueios = true).
-#   - Rode `terraform destroy` ao final para não deixar recursos residuais.
+#   - Rode `terraform destroy` ao final para não deixar recursos residuais
+#     (e apague o bucket manualmente — veja o Passo 7 do README).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -34,53 +42,6 @@ provider "aws" {
   default_tags {
     tags = var.tags
   }
-}
-
-# -----------------------------------------------------------------------------
-# Bucket S3 do lab — armazenamento distribuído/durável (o "HDFS da nuvem").
-# ÚNICO bucket, organizado por prefixos:
-#   - scripts/ : o rdd_job.py (script do Glue Job)
-#   - input/   : sample_lines.txt (dado de entrada)
-#   - output/  : resultado do wordcount (gravado pelo job)
-#   - logs/    : logs do driver/executors do job
-# -----------------------------------------------------------------------------
-resource "aws_s3_bucket" "lab" {
-  bucket = var.bucket_nome
-}
-
-# -----------------------------------------------------------------------------
-# Bucket PRIVADO — bloqueia qualquer acesso público (os 4 bloqueios = true).
-# -----------------------------------------------------------------------------
-resource "aws_s3_bucket_public_access_block" "lab" {
-  bucket                  = aws_s3_bucket.lab.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# -----------------------------------------------------------------------------
-# Upload do script PySpark para o S3 (prefixo scripts/).
-# O `terraform apply` já publica o script no bucket; é DAQUI que o Glue Job lê
-# o código (script_location aponta para s3://.../scripts/rdd_job.py).
-# O etag (filemd5) força o re-upload sempre que o script mudar.
-# -----------------------------------------------------------------------------
-resource "aws_s3_object" "script" {
-  bucket = aws_s3_bucket.lab.id
-  key    = "scripts/rdd_job.py"
-  source = "${path.module}/../job/rdd_job.py"
-  etag   = filemd5("${path.module}/../job/rdd_job.py")
-}
-
-# -----------------------------------------------------------------------------
-# Upload do dado de exemplo para o S3 (prefixo input/).
-# É o texto que o job vai ler (arg --INPUT). O etag força re-upload ao mudar.
-# -----------------------------------------------------------------------------
-resource "aws_s3_object" "input" {
-  bucket = aws_s3_bucket.lab.id
-  key    = "input/sample_lines.txt"
-  source = "${path.module}/../data/sample_lines.txt"
-  etag   = filemd5("${path.module}/../data/sample_lines.txt")
 }
 
 # -----------------------------------------------------------------------------
@@ -104,20 +65,20 @@ resource "aws_glue_job" "wordcount" {
   number_of_workers = 2
 
   # command.name = "glueetl" indica um job PySpark (Spark ETL). O script é lido
-  # do S3 (publicado pelo aws_s3_object.script acima).
+  # do S3 (publicado por CLI no scripts/run_job.sh — ver nota da SCP acima).
   command {
     name            = "glueetl"
     python_version  = "3"
-    script_location = "s3://${aws_s3_bucket.lab.bucket}/scripts/rdd_job.py"
+    script_location = "s3://${var.bucket_nome}/scripts/rdd_job.py"
   }
 
   # Argumentos passados ao script (getResolvedOptions os lê como --INPUT etc.).
   default_arguments = {
-    "--INPUT"  = "s3://${aws_s3_bucket.lab.bucket}/input/sample_lines.txt"
-    "--OUTPUT" = "s3://${aws_s3_bucket.lab.bucket}/output/wordcount"
+    "--INPUT"  = "s3://${var.bucket_nome}/input/sample_lines.txt"
+    "--OUTPUT" = "s3://${var.bucket_nome}/output/wordcount"
     # Logs contínuos do Spark/driver no CloudWatch (grupo /aws-glue/jobs/output).
     "--enable-continuous-cloudwatch-log" = "true"
     # Diretório temporário exigido pelo Glue (fica dentro do mesmo bucket).
-    "--TempDir" = "s3://${aws_s3_bucket.lab.bucket}/tmp/"
+    "--TempDir" = "s3://${var.bucket_nome}/tmp/"
   }
 }

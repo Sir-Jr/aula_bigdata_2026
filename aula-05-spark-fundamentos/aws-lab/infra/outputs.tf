@@ -2,8 +2,8 @@
 # Expõe os valores que os scripts em ../scripts consomem via `terraform output`.
 
 output "bucket_nome" {
-  description = "Nome do bucket S3 do lab (guarda script, dados de entrada, saída e logs)."
-  value       = aws_s3_bucket.lab.bucket
+  description = "Nome do bucket S3 do lab (criado manualmente por CLI, não gerenciado por este Terraform — veja o Passo 2.5 do README)."
+  value       = var.bucket_nome
 }
 
 output "glue_job_nome" {

@@ -66,7 +66,13 @@ def word_count_rdd(sc, lines):
         word_count_rdd(sc, ["gato rato gato", "rato correu gato"])
         -> [("gato", 3), ("rato", 2), ("correu", 1)]
     """
-    raise NotImplementedError("TODO 1: implemente word_count_rdd")
+    rdd = sc.parallelize(lines)
+    contagens = (
+        rdd.flatMap(lambda linha: linha.lower().split())
+        .map(lambda palavra: (palavra, 1))
+        .reduceByKey(lambda a, b: a + b)
+    )
+    return sorted(contagens.collect(), key=lambda par: (-par[1], par[0]))
 
 
 def top_n_palavras(sc, lines, n):
@@ -82,7 +88,7 @@ def top_n_palavras(sc, lines, n):
         top_n_palavras(sc, ["gato rato gato", "rato correu gato"], 2)
         -> [("gato", 3), ("rato", 2)]
     """
-    raise NotImplementedError("TODO 2: implemente top_n_palavras")
+    return word_count_rdd(sc, lines)[:n]
 
 
 def main():
@@ -94,6 +100,16 @@ def main():
     # Contexto Spark/Glue: o SparkContext e o GlueContext são gerenciados pelo
     # Glue; a SparkSession vem do GlueContext. O Job registra início/fim.
     sc = SparkContext()
+
+    # O Glue 4.0 configura por padrao o "mapred.output.committer.class" como
+    # DirectOutputCommitter para escritas no S3, mas essa classe nao existe no
+    # classpath do Glue e quebra RDD.saveAsTextFile (ClassNotFoundException).
+    # Forcamos o committer padrao do Hadoop, que funciona normalmente.
+    sc._jsc.hadoopConfiguration().set(
+        "mapred.output.committer.class",
+        "org.apache.hadoop.mapred.FileOutputCommitter",
+    )
+
     glue = GlueContext(sc)
     spark = glue.spark_session
     job = Job(glue)

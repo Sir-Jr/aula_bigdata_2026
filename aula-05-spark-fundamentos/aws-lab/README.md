@@ -126,6 +126,29 @@ Edite `infra/terraform.tfvars`:
 
 ---
 
+## Passo 2.5 — Criar o bucket S3 manualmente (workaround do Learner Lab)
+
+Neste Learner Lab, o provider AWS do Terraform **não consegue gerenciar
+`aws_s3_bucket`**: toda leitura desse recurso (em `plan`/`apply`/`destroy`, até
+num bucket recém-criado) chama `s3:GetBucketObjectLockConfiguration`, e a SCP
+da conta do curso **nega essa ação incondicionalmente** — não é algo que dê
+para contornar via IAM ou `object_lock_enabled = false`. Por isso o bucket
+**não está no Terraform** (veja `infra/main.tf`): crie-o uma única vez por CLI,
+usando o mesmo `bucket_nome` que você definiu no `terraform.tfvars`:
+
+```bash
+BUCKET="lab-aula05-glue-SEURA"   # o mesmo valor de bucket_nome no tfvars
+
+aws s3api create-bucket --bucket "$BUCKET" --region us-east-1
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+> Nomes de bucket S3 são **globais**: se `create-bucket` der erro de nome já
+> em uso, escolha outro `bucket_nome` (e atualize o `terraform.tfvars`).
+
+---
+
 ## Passo 3 — Completar os TODOs em `job/rdd_job.py`
 
 Abra `job/rdd_job.py` e implemente as duas funções marcadas como TODO:
@@ -167,8 +190,8 @@ terraform plan
 terraform apply     # confirme com 'yes'
 ```
 
-O `apply` já **sobe o script** (`job/rdd_job.py` → `s3://SEU_BUCKET/scripts/`) e o
-**dado de exemplo** (`data/sample_lines.txt` → `s3://SEU_BUCKET/input/`) para o S3.
+Isso cria só o **Glue Job** (o bucket já existe, criado no Passo 2.5). O script
+e o dado de exemplo são enviados ao S3 pelo `run_job.sh` no próximo passo.
 
 Ao final, o Terraform mostra os **outputs**:
 - `bucket_nome` — nome do bucket S3 do lab.
@@ -225,7 +248,15 @@ O `print(...)` do `rdd_job.py` aparece ali.
 
 ```bash
 cd ../infra
-terraform destroy   # confirme com 'yes'
+terraform destroy   # confirme com 'yes' — remove só o Glue Job
+```
+
+Como o bucket **não** é gerenciado pelo Terraform (Passo 2.5), apague-o também
+por CLI:
+
+```bash
+aws s3 rm "s3://$BUCKET" --recursive
+aws s3api delete-bucket --bucket "$BUCKET"
 ```
 
 > O **AWS Glue cobra por tempo de execução do job** (não fica "ligado" entre
