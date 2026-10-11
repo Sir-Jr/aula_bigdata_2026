@@ -20,8 +20,8 @@ Saída:
 ```text
 {
     "UserId": "AROA************:user5367787=Sirlande_Martins_de_Oliveira_Junior_-_6325269",
-    "Account": "385833302318",
-    "Arn": "arn:aws:sts::385833302318:assumed-role/voclabs/user5367787=Sirlande_Martins_de_Oliveira_Junior_-_6325269"
+    "Account": "3858****2318",
+    "Arn": "arn:aws:sts::3858****2318:assumed-role/voclabs/user5367787=Sirlande_Martins_de_Oliveira_Junior_-_6325269"
 }
 ```
 
@@ -46,7 +46,7 @@ Outputs:
 
 bucket_nome = "lab-aula06-glue-6325269"
 glue_job_nome = "job-aula06-topn-clientes"
-labrole_arn = "arn:aws:iam::385833302318:role/LabRole"
+labrole_arn = "arn:aws:iam::3858****2318:role/LabRole"
 ```
 
 ---
@@ -59,7 +59,7 @@ Saída:
 ```text
 BUCKET   = lab-aula06-glue-6325269
 GLUE_JOB = job-aula06-topn-clientes
-ROLE_ARN = arn:aws:iam::385833302318:role/LabRole
+ROLE_ARN = arn:aws:iam::3858****2318:role/LabRole
 $ aws s3 rm s3://lab-aula06-glue-6325269/output/top_clientes --recursive
 $ aws glue start-job-run --job-name job-aula06-topn-clientes ...
 RUN_ID = jr_e1ff36963873114580bc04e3271e6b448ad08cb174d8b7473a5fdee1c5d244e9
